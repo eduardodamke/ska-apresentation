@@ -109,15 +109,6 @@ static ApiResponse? CheckHeaders(HttpRequest request, string validToken, out int
 }
 
 // ─────────────────────────────────────────────
-// GET /api/health
-// ─────────────────────────────────────────────
-app.MapGet("/health", (HttpContext ctx) =>
-{
-    Console.WriteLine("HEALTH CHECK - " + DateTime.Now.ToString("HH:mm:ss") + " - IP: " + ctx.Connection.RemoteIpAddress);
-    return Results.Ok("ok");
-});
-
-// ─────────────────────────────────────────────
 // POST /api/SendOrders
 // ─────────────────────────────────────────────
 app.MapPost("/api/SendOrders", async (HttpContext ctx, [FromBody] List<SendOrdersRequest>? body) =>
@@ -174,7 +165,7 @@ app.MapPost("/api/SendOrdersDetail", async (HttpContext ctx, [FromBody] List<Sen
 // ─────────────────────────────────────────────
 // POST /api/SendOrdersCustom
 // ─────────────────────────────────────────────
-app.MapPost("/api/SendOrdersCustom", async (HttpContext ctx, [FromBody] Dictionary<string, object?>? body) =>
+app.MapPost("/api/SendOrdersCustom", async (HttpContext ctx, [FromBody] List<Dictionary<string, object?>>? body) =>
 {
     if (!TryExtractToken(ctx.Request, out var token))
         return Results.Json(new DiscoverResponse(
@@ -193,34 +184,44 @@ app.MapPost("/api/SendOrdersCustom", async (HttpContext ctx, [FromBody] Dictiona
 
     if (body is null || body.Count == 0)
         return Results.Json(new DiscoverResponse(
-            Message: "Headers corretos! Agora envie um body com os dados de produção. Envie um objeto JSON com os campos do registro de produção.",
+            Message: "Headers corretos! Agora envie um body com os dados de producao. Envie uma lista de objetos JSON com os campos do registro de producao.",
             Validate: false), statusCode: 400);
 
-    var receivedKeys = body.Keys.ToList();
-    var receivedKeysLower = receivedKeys.Select(k => k.ToLowerInvariant()).ToHashSet();
+    var allKeys = body.SelectMany(item => item.Keys).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    var allKeysLower = allKeys.Select(k => k.ToLowerInvariant()).ToHashSet();
 
-    int anchorMatches = AnchorFields.Count(f => receivedKeysLower.Contains(f.ToLowerInvariant()));
+    int anchorMatches = AnchorFields.Count(f => allKeysLower.Contains(f.ToLowerInvariant()));
     if (anchorMatches < 3)
         return Results.Json(new DiscoverResponse(
-            Message: "Headers e formato OK, mas os dados enviados não parecem ser de produção. Dica: procure por uma tabela que tenha colunas como OrderNum, Operation, PartCode, ResourceCode, CycleQty...",
+            Message: "Headers e formato OK, mas os dados enviados nao parecem ser de producao. Dica: procure por uma tabela que tenha colunas como OrderNum, Operation, PartCode, ResourceCode, CycleQty...",
             Validate: false), statusCode: 422);
 
-    var sentInternalFields = receivedKeys
+    var sentInternalFields = allKeys
         .Where(k => InternalFields.Any(f => f.Equals(k, StringComparison.OrdinalIgnoreCase)))
         .ToList();
 
     if (sentInternalFields.Any())
         return Results.Json(new DiscoverResponse(
-            Message: "A tabela está correta, mas você está enviando campo(s) interno(s) que não devem fazer parte do payload: " + string.Join(", ", sentInternalFields) + ". Esses campos são apenas para uso interno (rastreamento de eventos). Remova-os do JSON.",
+            Message: "A tabela esta correta, mas voce esta enviando campo(s) interno(s) que nao devem fazer parte do payload: " + string.Join(", ", sentInternalFields) + ". Esses campos sao apenas para uso interno (rastreamento de eventos). Remova-os do JSON.",
             Validate: false), statusCode: 422);
 
-    var missingFields = ExpectedFields
-        .Where(f => !receivedKeysLower.Contains(f.ToLowerInvariant()) || IsNullOrEmpty(body, receivedKeys, f))
-        .ToList();
+    var itemErrors = new List<string>();
+    for (int i = 0; i < body.Count; i++)
+    {
+        var item = body[i];
+        var itemKeys = item.Keys.ToList();
+        var missingFields = ExpectedFields
+            .Where(f => !itemKeys.Any(k => k.Equals(f, StringComparison.OrdinalIgnoreCase))
+                     || IsNullOrEmpty(item, itemKeys, f))
+            .ToList();
 
-    if (missingFields.Any())
+        if (missingFields.Any())
+            itemErrors.Add("Item [" + i + "]: campos faltando -> " + string.Join(", ", missingFields));
+    }
+
+    if (itemErrors.Any())
         return Results.Json(new DiscoverResponse(
-            Message: "Tabela e campos corretos! Mas alguns campos obrigatórios estão ausentes ou nulos. Campos faltando: " + string.Join(", ", missingFields) + ".",
+            Message: "Tabela e campos corretos! Mas alguns campos obrigatorios estao ausentes ou nulos. " + string.Join(" | ", itemErrors) + ".",
             Validate: false), statusCode: 422);
 
     return Results.Json(new DiscoverResponse(Message: "", Validate: true));
