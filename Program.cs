@@ -54,10 +54,9 @@ const string VALID_TOKEN = "ska-maestro-training";
 
 string[] ExpectedFields = new[]
 {
-    "ProductionID", "ProdStatus", "ProdRun", "OrderNum", "Operation", "Sequence",
-    "PartCode", "PartName", "ResourceCode", "CycleQty", "CycleTime", "SetupTime",
-    "ProdTimeTolAbs", "ProdTimeTolRel", "ScrapTolAbs", "ScrapTolRel", "PlanQty",
-    "CycleCount", "PartCount", "ScrapCount", "CostCenter", "UnitID"
+    "ProductionID", "OrderNum", "Operation", "Sequence",
+    "PartCode", "PartName", "CycleQty", "CycleTime", "SetupTime", "PlanQty",
+    "CycleCount", "PartCount", "ScrapCount"
 };
 
 string[] InternalFields = new[]
