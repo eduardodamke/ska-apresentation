@@ -191,23 +191,23 @@ app.MapPost("/api/SendOrdersCustom", async (HttpContext ctx, [FromBody] List<Dic
 
     int anchorMatches = AnchorFields.Count(f => allKeysLower.Contains(f.ToLowerInvariant()));
     if (anchorMatches < 3)
-        return Results.Json(new DiscoverResponse(
-            Message: "Headers e formato OK, mas os dados enviados nao parecem ser de producao. Dica: procure por uma tabela que tenha colunas como OrderNum, Operation, PartCode, ResourceCode, CycleQty...",
-            Validate: false), statusCode: 422);
+    {
+        var msg = "Headers e formato OK, mas os dados enviados nao parecem ser de producao. Dica: procure por uma tabela que tenha colunas como OrderNum, Operation, PartCode, ResourceCode, CycleQty...";
+        return Results.Json(body.Select((item, i) => new DiscoverResponse(Id: GetId(item), Message: msg, Validate: false)).ToList(), statusCode: 422);
+    }
 
     var sentInternalFields = allKeys
         .Where(k => InternalFields.Any(f => f.Equals(k, StringComparison.OrdinalIgnoreCase)))
         .ToList();
 
     if (sentInternalFields.Any())
-        return Results.Json(new DiscoverResponse(
-            Message: "A tabela esta correta, mas voce esta enviando campo(s) interno(s) que nao devem fazer parte do payload: " + string.Join(", ", sentInternalFields) + ". Esses campos sao apenas para uso interno (rastreamento de eventos). Remova-os do JSON.",
-            Validate: false), statusCode: 422);
-
-    var itemErrors = new List<string>();
-    for (int i = 0; i < body.Count; i++)
     {
-        var item = body[i];
+        var msg = "Voce esta enviando campo(s) interno(s) que nao devem fazer parte do payload: " + string.Join(", ", sentInternalFields) + ". Remova-os do JSON.";
+        return Results.Json(body.Select((item, i) => new DiscoverResponse(Id: GetId(item), Message: msg, Validate: false)).ToList(), statusCode: 422);
+    }
+
+    var results = body.Select(item =>
+    {
         var itemKeys = item.Keys.ToList();
         var missingFields = ExpectedFields
             .Where(f => !itemKeys.Any(k => k.Equals(f, StringComparison.OrdinalIgnoreCase))
@@ -215,15 +215,12 @@ app.MapPost("/api/SendOrdersCustom", async (HttpContext ctx, [FromBody] List<Dic
             .ToList();
 
         if (missingFields.Any())
-            itemErrors.Add("Item [" + i + "]: campos faltando -> " + string.Join(", ", missingFields));
-    }
+            return new DiscoverResponse(Id: GetId(item), Message: "Campos obrigatorios ausentes ou nulos: " + string.Join(", ", missingFields) + ".", Validate: false);
 
-    if (itemErrors.Any())
-        return Results.Json(new DiscoverResponse(
-            Message: "Tabela e campos corretos! Mas alguns campos obrigatorios estao ausentes ou nulos. " + string.Join(" | ", itemErrors) + ".",
-            Validate: false), statusCode: 422);
+        return new DiscoverResponse(Id: GetId(item), Message: "", Validate: true);
+    }).ToList();
 
-    return Results.Json(new DiscoverResponse(Message: "", Validate: true));
+    return Results.Json(results);
 })
 .WithName("Discover");
 
@@ -237,6 +234,14 @@ static bool IsNullOrEmpty(Dictionary<string, object?> body, List<string> receive
     return false;
 }
 
+static int? GetId(Dictionary<string, object?> item)
+{
+    var key = item.Keys.FirstOrDefault(k => k.Equals("ProductionID", StringComparison.OrdinalIgnoreCase));
+    if (key is null) return null;
+    if (item[key] is System.Text.Json.JsonElement el && el.TryGetInt32(out var v)) return v;
+    return null;
+}
+
 app.Run();
 
 // ─────────────────────────────────────────────
@@ -244,7 +249,7 @@ app.Run();
 // ─────────────────────────────────────────────
 record ApiResponse(string Message, bool Validate);
 
-record DiscoverResponse(string Message, bool Validate);
+record DiscoverResponse(int? Id, string Message, bool Validate);
 
 record SendOrdersRequest(string? OP, string? OPER, string? CODPECA, string? MAQ)
 {
