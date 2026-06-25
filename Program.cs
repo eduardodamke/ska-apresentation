@@ -80,7 +80,7 @@ static ApiResponse? CheckHeaders(HttpRequest request, string validToken, out int
 
 static void LogRequest(string endpoint, HttpContext ctx, object? body, int responseStatus, string responseMessage)
 {
-    var sep = new string('─', 60);
+    var sep = new string('-', 60);
     var req = ctx.Request;
     var ip = ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 
@@ -92,25 +92,19 @@ static void LogRequest(string endpoint, HttpContext ctx, object? body, int respo
         ? "(vazio)"
         : JsonSerializer.Serialize(body, new JsonSerializerOptions { WriteIndented = true });
 
-    var statusIcon = responseStatus is >= 200 and < 300 ? "✅" : "❌";
+    var statusIcon = responseStatus is >= 200 and < 300 ? "OK" : "ERRO";
 
-    Console.WriteLine($"""
-
-{sep}
-📥 [{DateTime.Now:yyyy-MM-dd HH:mm:ss}] POST {endpoint}
-{sep}
-🌐 IP         : {ip}
-🔗 User-Agent : {req.Headers.UserAgent}
-
-📋 HEADERS:
-    {headers}
-
-📦 BODY:
-{bodyJson}
-
-{statusIcon} RESPOSTA [{responseStatus}]: {responseMessage}
-{sep}
-""");
+    Console.WriteLine(sep);
+    Console.WriteLine($"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] POST {endpoint}");
+    Console.WriteLine($"IP         : {ip}");
+    Console.WriteLine($"User-Agent : {req.Headers.UserAgent}");
+    Console.WriteLine("HEADERS:");
+    Console.WriteLine($"    {headers}");
+    Console.WriteLine("BODY:");
+    Console.WriteLine(bodyJson);
+    Console.WriteLine($"{statusIcon} [{responseStatus}]: {responseMessage}");
+    Console.WriteLine(sep);
+    Console.Out.Flush();
 }
 
 // ─────────────────────────────────────────────
