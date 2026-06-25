@@ -210,7 +210,7 @@ app.Run();
 // ─────────────────────────────────────────────
 record ApiResponse(string Message, bool Validate);
 
-record DiscoverResponse(string Message, string Hint, bool Validate);
+record DiscoverResponse(string Message, bool Validate);
 
 record SendOrdersRequest(string? OP, string? OPER, string? CODPECA, string? MAQ)
 {
