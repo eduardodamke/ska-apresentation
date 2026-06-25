@@ -37,8 +37,6 @@ app.Use(async (ctx, next) =>
 
     Console.WriteLine(sep);
     Console.WriteLine("[" + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "] " + req.Method + " " + req.Path);
-    Console.WriteLine("IP: " + ip);
-    Console.WriteLine("User-Agent: " + req.Headers.UserAgent);
     Console.WriteLine("Headers:");
     Console.WriteLine("  " + headers);
     Console.WriteLine("Body:");
@@ -108,6 +106,15 @@ static ApiResponse? CheckHeaders(HttpRequest request, string validToken, out int
     }
     return null;
 }
+
+// ─────────────────────────────────────────────
+// GET /api/health
+// ─────────────────────────────────────────────
+app.MapGet("/health", (HttpContext ctx) =>
+{
+    Console.WriteLine("HEALTH CHECK - " + DateTime.Now.ToString("HH:mm:ss") + " - IP: " + ctx.Connection.RemoteIpAddress);
+    return Results.Ok("ok");
+});
 
 // ─────────────────────────────────────────────
 // POST /api/SendOrders
