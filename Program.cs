@@ -35,13 +35,14 @@ app.Use(async (ctx, next) =>
     }
     catch { }
 
-    Console.WriteLine(sep);
-    Console.WriteLine("[" + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "] " + req.Method + " " + req.Path);
-    Console.WriteLine("Headers:");
-    Console.WriteLine("  " + headers);
-    Console.WriteLine("Body:");
-    Console.WriteLine(bodyText);
-    Console.WriteLine(sep);
+    Console.Error.WriteLine(sep);
+    Console.Error.WriteLine("[" + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "] " + req.Method + " " + req.Path);
+    Console.Error.WriteLine("Headers:");
+    Console.Error.WriteLine("  " + headers);
+    Console.Error.WriteLine("Body:");
+    Console.Error.WriteLine(bodyText);
+    Console.Error.WriteLine(sep);
+    Console.Error.Flush();
 
     await next();
 });
