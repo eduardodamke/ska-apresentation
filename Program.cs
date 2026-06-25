@@ -1,5 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
-using System;
+using System.Text.Json;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -40,14 +40,14 @@ static bool TryExtractToken(HttpRequest request, out string token)
 {
     token = string.Empty;
     var auth = request.Headers.Authorization.ToString();
-    if (string.IsNullOrWhiteSpace(auth)) 
+    if (string.IsNullOrWhiteSpace(auth))
         return false;
-    
-    if (!auth.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)) 
+
+    if (!auth.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
         return false;
-    
+
     token = auth["Bearer ".Length..].Trim();
-    
+
     return !string.IsNullOrWhiteSpace(token);
 }
 
@@ -55,7 +55,7 @@ static ApiResponse? CheckHeaders(HttpRequest request, string validToken, out int
 {
     statusCode = 200;
     var auth = request.Headers.Authorization.ToString();
-    
+
     if (string.IsNullOrWhiteSpace(auth) || !auth.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
     {
         statusCode = 401;
@@ -78,6 +78,41 @@ static ApiResponse? CheckHeaders(HttpRequest request, string validToken, out int
     return null;
 }
 
+static void LogRequest(string endpoint, HttpContext ctx, object? body, int responseStatus, string responseMessage)
+{
+    var sep = new string('─', 60);
+    var req = ctx.Request;
+    var ip = ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+    var headers = string.Join("\n    ", req.Headers
+        .Where(h => !h.Key.Equals("Host", StringComparison.OrdinalIgnoreCase))
+        .Select(h => $"{h.Key}: {h.Value}"));
+
+    var bodyJson = body is null
+        ? "(vazio)"
+        : JsonSerializer.Serialize(body, new JsonSerializerOptions { WriteIndented = true });
+
+    var statusIcon = responseStatus is >= 200 and < 300 ? "✅" : "❌";
+
+    Console.WriteLine($"""
+
+{sep}
+📥 [{DateTime.Now:yyyy-MM-dd HH:mm:ss}] POST {endpoint}
+{sep}
+🌐 IP         : {ip}
+🔗 User-Agent : {req.Headers.UserAgent}
+
+📋 HEADERS:
+    {headers}
+
+📦 BODY:
+{bodyJson}
+
+{statusIcon} RESPOSTA [{responseStatus}]: {responseMessage}
+{sep}
+""");
+}
+
 // ─────────────────────────────────────────────
 // POST /api/SendOrders
 // ─────────────────────────────────────────────
@@ -85,10 +120,17 @@ app.MapPost("/api/SendOrders", async (HttpContext ctx, [FromBody] List<SendOrder
 {
     var check = CheckHeaders(ctx.Request, VALID_TOKEN, out var statusCode);
     if (check is not null)
+    {
+        LogRequest("/api/SendOrders", ctx, body, statusCode, check.Message);
         return Results.Json(check, statusCode: statusCode);
+    }
 
     if (body is null || body.Count == 0)
-        return Results.Json(new ApiResponse("O body não pode ser vazio. Envie uma lista de registros.", false), statusCode: 400);
+    {
+        var resp = new ApiResponse("O body não pode ser vazio. Envie uma lista de registros.", false);
+        LogRequest("/api/SendOrders", ctx, body, 400, resp.Message);
+        return Results.Json(resp, statusCode: 400);
+    }
 
     var errors = new List<string>();
     for (int i = 0; i < body.Count; i++)
@@ -100,9 +142,15 @@ app.MapPost("/api/SendOrders", async (HttpContext ctx, [FromBody] List<SendOrder
     }
 
     if (errors.Any())
-        return Results.Json(new ApiResponse(string.Join(" | ", errors), false), statusCode: 422);
+    {
+        var resp = new ApiResponse(string.Join(" | ", errors), false);
+        LogRequest("/api/SendOrders", ctx, body, 422, resp.Message);
+        return Results.Json(resp, statusCode: 422);
+    }
 
-    return Results.Json(new ApiResponse($"{body.Count} registro(s) recebido(s) com sucesso.", true));
+    var success = new ApiResponse($"{body.Count} registro(s) recebido(s) com sucesso.", true);
+    LogRequest("/api/SendOrders", ctx, body, 200, success.Message);
+    return Results.Json(success);
 })
 .WithName("SendOrders");
 
@@ -113,10 +161,17 @@ app.MapPost("/api/SendOrdersDetail", async (HttpContext ctx, [FromBody] List<Sen
 {
     var check = CheckHeaders(ctx.Request, VALID_TOKEN, out var statusCode);
     if (check is not null)
+    {
+        LogRequest("/api/SendOrdersDetail", ctx, body, statusCode, check.Message);
         return Results.Json(check, statusCode: statusCode);
+    }
 
     if (body is null || body.Count == 0)
-        return Results.Json(new ApiResponse("O body não pode ser vazio. Envie uma lista de registros.", false), statusCode: 400);
+    {
+        var resp = new ApiResponse("O body não pode ser vazio. Envie uma lista de registros.", false);
+        LogRequest("/api/SendOrdersDetail", ctx, body, 400, resp.Message);
+        return Results.Json(resp, statusCode: 400);
+    }
 
     var errors = new List<string>();
     for (int i = 0; i < body.Count; i++)
@@ -128,9 +183,15 @@ app.MapPost("/api/SendOrdersDetail", async (HttpContext ctx, [FromBody] List<Sen
     }
 
     if (errors.Any())
-        return Results.Json(new ApiResponse(string.Join(" | ", errors), false), statusCode: 422);
+    {
+        var resp = new ApiResponse(string.Join(" | ", errors), false);
+        LogRequest("/api/SendOrdersDetail", ctx, body, 422, resp.Message);
+        return Results.Json(resp, statusCode: 422);
+    }
 
-    return Results.Json(new ApiResponse($"{body.Count} registro(s) recebido(s) com sucesso.", true));
+    var success = new ApiResponse($"{body.Count} registro(s) recebido(s) com sucesso.", true);
+    LogRequest("/api/SendOrdersDetail", ctx, body, 200, success.Message);
+    return Results.Json(success);
 })
 .WithName("SendOrdersDetail");
 
@@ -139,43 +200,49 @@ app.MapPost("/api/SendOrdersDetail", async (HttpContext ctx, [FromBody] List<Sen
 // ─────────────────────────────────────────────
 app.MapPost("/api/SendOrdersCustom", async (HttpContext ctx, [FromBody] Dictionary<string, object?>? body) =>
 {
+    IResult Respond(DiscoverResponse r, int status)
+    {
+        LogRequest("/api/SendOrdersCustom", ctx, body, status, r.Message);
+        return Results.Json(r, statusCode: status);
+    }
+
     if (!TryExtractToken(ctx.Request, out var token))
-        return Results.Json(new DiscoverResponse(
+        return Respond(new DiscoverResponse(
             Message: "Acesso negado. Esta rota requer autenticação. Dica: adicione o header 'Authorization' com um Bearer token. Header esperado → Authorization: Bearer ???",
-            Validate: false), statusCode: 401);
+            Validate: false), 401);
 
     if (token != VALID_TOKEN)
-        return Results.Json(new DiscoverResponse(
+        return Respond(new DiscoverResponse(
             Message: "Token inválido. Você está usando o token certo? O token tem o formato: ska-????-????.",
-            Validate: false), statusCode: 401);
+            Validate: false), 401);
 
     if (!ctx.Request.HasJsonContentType())
-        return Results.Json(new DiscoverResponse(
+        return Respond(new DiscoverResponse(
             Message: "Autenticado com sucesso! Mas o formato do body está incorreto. Header esperado → Content-Type: application/json",
-            Validate: false), statusCode: 415);
+            Validate: false), 415);
 
     if (body is null || body.Count == 0)
-        return Results.Json(new DiscoverResponse(
+        return Respond(new DiscoverResponse(
             Message: "Headers corretos! Agora envie um body com os dados de produção. Envie um objeto JSON com os campos do registro de produção.",
-            Validate: false), statusCode: 400);
+            Validate: false), 400);
 
     var receivedKeys = body.Keys.ToList();
     var receivedKeysLower = receivedKeys.Select(k => k.ToLowerInvariant()).ToHashSet();
 
     int anchorMatches = AnchorFields.Count(f => receivedKeysLower.Contains(f.ToLowerInvariant()));
     if (anchorMatches < 3)
-        return Results.Json(new DiscoverResponse(
+        return Respond(new DiscoverResponse(
             Message: "Headers e formato OK, mas os dados enviados não parecem ser de produção. Dica: procure por uma tabela que tenha colunas como OrderNum, Operation, PartCode, ResourceCode, CycleQty...",
-            Validate: false), statusCode: 422);
+            Validate: false), 422);
 
     var sentInternalFields = receivedKeys
         .Where(k => InternalFields.Any(f => f.Equals(k, StringComparison.OrdinalIgnoreCase)))
         .ToList();
 
     if (sentInternalFields.Any())
-        return Results.Json(new DiscoverResponse(
+        return Respond(new DiscoverResponse(
             Message: $"A tabela está correta, mas você está enviando campo(s) interno(s) que não devem fazer parte do payload: {string.Join(", ", sentInternalFields)}. Esses campos são apenas para uso interno (rastreamento de eventos). Remova-os do JSON.",
-            Validate: false), statusCode: 422);
+            Validate: false), 422);
 
     var missingFields = ExpectedFields
         .Where(f => !receivedKeysLower.Contains(f.ToLowerInvariant()) ||
@@ -183,13 +250,13 @@ app.MapPost("/api/SendOrdersCustom", async (HttpContext ctx, [FromBody] Dictiona
         .ToList();
 
     if (missingFields.Any())
-        return Results.Json(new DiscoverResponse(
+        return Respond(new DiscoverResponse(
             Message: $"Tabela e campos corretos! Mas alguns campos obrigatórios estão ausentes ou nulos. Campos faltando: {string.Join(", ", missingFields)}.",
-            Validate: false), statusCode: 422);
+            Validate: false), 422);
 
-    return Results.Json(new DiscoverResponse(
+    return Respond(new DiscoverResponse(
         Message: "",
-        Validate: true));
+        Validate: true), 200);
 })
 .WithName("Discover");
 
@@ -239,4 +306,3 @@ record SendOrdersDetailRequest(
         return missing;
     }
 }
-
