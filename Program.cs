@@ -107,6 +107,24 @@ static ApiResponse? CheckHeaders(HttpRequest request, string validToken, out int
     return null;
 }
 
+static int? GetId(Dictionary<string, object?> item)
+{
+    var key = item.Keys.FirstOrDefault(k => k.Equals("ProductionID", StringComparison.OrdinalIgnoreCase));
+    if (key is null) return null;
+    if (item[key] is JsonElement el && el.TryGetInt32(out var v)) return v;
+    return null;
+}
+
+static bool IsNullOrEmpty(Dictionary<string, object?> body, List<string> receivedKeys, string field)
+{
+    var key = receivedKeys.FirstOrDefault(k => k.Equals(field, StringComparison.OrdinalIgnoreCase));
+    if (key is null) return true;
+    var value = body[key];
+    if (value is null) return true;
+    if (value is string s && string.IsNullOrWhiteSpace(s)) return true;
+    return false;
+}
+
 // ─────────────────────────────────────────────
 // POST /api/SendOrders
 // ─────────────────────────────────────────────
@@ -167,24 +185,24 @@ app.MapPost("/api/SendOrdersDetail", async (HttpContext ctx, [FromBody] List<Sen
 app.MapPost("/api/SendOrdersCustom", async (HttpContext ctx, [FromBody] List<Dictionary<string, object?>>? body) =>
 {
     if (!TryExtractToken(ctx.Request, out var token))
-        return Results.Json(new DiscoverResponse(
-            Message: "Acesso negado. Esta rota requer autenticação. Dica: adicione o header 'Authorization' com um Bearer token. Header esperado -> Authorization: Bearer ???",
-            Validate: false), statusCode: 401);
+        return Results.Json(new ApiResponse(
+            "Acesso negado. Esta rota requer autenticação. Dica: adicione o header 'Authorization' com um Bearer token. Header esperado -> Authorization: Bearer ???",
+            false), statusCode: 401);
 
     if (token != VALID_TOKEN)
-        return Results.Json(new DiscoverResponse(
-            Message: "Token inválido. Você está usando o token certo? O token tem o formato: ska-????-????.",
-            Validate: false), statusCode: 401);
+        return Results.Json(new ApiResponse(
+            "Token inválido. Você está usando o token certo? O token tem o formato: ska-????-????.",
+            false), statusCode: 401);
 
     if (!ctx.Request.HasJsonContentType())
-        return Results.Json(new DiscoverResponse(
-            Message: "Autenticado com sucesso! Mas o formato do body está incorreto. Header esperado -> Content-Type: application/json",
-            Validate: false), statusCode: 415);
+        return Results.Json(new ApiResponse(
+            "Autenticado com sucesso! Mas o formato do body está incorreto. Header esperado -> Content-Type: application/json",
+            false), statusCode: 415);
 
     if (body is null || body.Count == 0)
-        return Results.Json(new DiscoverResponse(
-            Message: "Headers corretos! Agora envie um body com os dados de producao. Envie uma lista de objetos JSON com os campos do registro de producao.",
-            Validate: false), statusCode: 400);
+        return Results.Json(new ApiResponse(
+            "Headers corretos! Agora envie um body com os dados de produção. Envie uma lista de objetos JSON com os campos do registro de produção.",
+            false), statusCode: 400);
 
     var allKeys = body.SelectMany(item => item.Keys).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     var allKeysLower = allKeys.Select(k => k.ToLowerInvariant()).ToHashSet();
@@ -192,8 +210,10 @@ app.MapPost("/api/SendOrdersCustom", async (HttpContext ctx, [FromBody] List<Dic
     int anchorMatches = AnchorFields.Count(f => allKeysLower.Contains(f.ToLowerInvariant()));
     if (anchorMatches < 3)
     {
-        var msg = "Headers e formato OK, mas os dados enviados nao parecem ser de producao. Dica: procure por uma tabela que tenha colunas como OrderNum, Operation, PartCode, ResourceCode, CycleQty...";
-        return Results.Json(body.Select((item, i) => new DiscoverResponse(Id: GetId(item), Message: msg, Validate: false)).ToList(), statusCode: 422);
+        var msg = "Headers e formato OK, mas os dados enviados não parecem ser de produção. Dica: procure por uma tabela que tenha colunas como OrderNum, Operation, PartCode, ResourceCode, CycleQty...";
+        return Results.Json(
+            body.Select(item => new DiscoverResponse(Id: GetId(item), Message: msg, Validate: false)).ToList(),
+            statusCode: 422);
     }
 
     var sentInternalFields = allKeys
@@ -202,8 +222,10 @@ app.MapPost("/api/SendOrdersCustom", async (HttpContext ctx, [FromBody] List<Dic
 
     if (sentInternalFields.Any())
     {
-        var msg = "Voce esta enviando campo(s) interno(s) que nao devem fazer parte do payload: " + string.Join(", ", sentInternalFields) + ". Remova-os do JSON.";
-        return Results.Json(body.Select((item, i) => new DiscoverResponse(Id: GetId(item), Message: msg, Validate: false)).ToList(), statusCode: 422);
+        var msg = "Você está enviando campo(s) interno(s) que não devem fazer parte do payload: " + string.Join(", ", sentInternalFields) + ". Esses campos são apenas para uso interno. Remova-os do JSON.";
+        return Results.Json(
+            body.Select(item => new DiscoverResponse(Id: GetId(item), Message: msg, Validate: false)).ToList(),
+            statusCode: 422);
     }
 
     var results = body.Select(item =>
@@ -215,7 +237,7 @@ app.MapPost("/api/SendOrdersCustom", async (HttpContext ctx, [FromBody] List<Dic
             .ToList();
 
         if (missingFields.Any())
-            return new DiscoverResponse(Id: GetId(item), Message: "Campos obrigatorios ausentes ou nulos: " + string.Join(", ", missingFields) + ".", Validate: false);
+            return new DiscoverResponse(Id: GetId(item), Message: "Campos obrigatórios ausentes ou nulos: " + string.Join(", ", missingFields) + ".", Validate: false);
 
         return new DiscoverResponse(Id: GetId(item), Message: "", Validate: true);
     }).ToList();
@@ -223,24 +245,6 @@ app.MapPost("/api/SendOrdersCustom", async (HttpContext ctx, [FromBody] List<Dic
     return Results.Json(results);
 })
 .WithName("Discover");
-
-static bool IsNullOrEmpty(Dictionary<string, object?> body, List<string> receivedKeys, string field)
-{
-    var key = receivedKeys.FirstOrDefault(k => k.Equals(field, StringComparison.OrdinalIgnoreCase));
-    if (key is null) return true;
-    var value = body[key];
-    if (value is null) return true;
-    if (value is string s && string.IsNullOrWhiteSpace(s)) return true;
-    return false;
-}
-
-static int? GetId(Dictionary<string, object?> item)
-{
-    var key = item.Keys.FirstOrDefault(k => k.Equals("ProductionID", StringComparison.OrdinalIgnoreCase));
-    if (key is null) return null;
-    if (item[key] is System.Text.Json.JsonElement el && el.TryGetInt32(out var v)) return v;
-    return null;
-}
 
 app.Run();
 
